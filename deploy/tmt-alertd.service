@@ -1,0 +1,23 @@
+[Unit]
+Description=Track_My_Tracker alert daemon (scores sightings, fires alerts)
+After=tmt-ble.service bluetooth.target network.target
+Wants=tmt-ble.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/Track_My_Tracker
+# Best-effort so paplay/ffplay can reach pi's audio session for audible alerts.
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+# Put push secrets here:  TMT_NTFY_TOPIC=...  (or pushover token/user)
+EnvironmentFile=-/etc/track_my_tracker/alertd.env
+ExecStart=/home/pi/Track_My_Tracker/.venv/bin/python /home/pi/Track_My_Tracker/alertd.py
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

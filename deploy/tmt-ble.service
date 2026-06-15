@@ -1,0 +1,20 @@
+[Unit]
+Description=Track_My_Tracker continuous BLE sighting logger
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/Track_My_Tracker
+ExecStart=/home/pi/Track_My_Tracker/.venv/bin/python /home/pi/Track_My_Tracker/scan.py --session auto --rotate-minutes 15
+Restart=always
+RestartSec=5
+# Light hardening; needs the system D-Bus (BlueZ) and the project dir.
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

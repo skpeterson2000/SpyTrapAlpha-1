@@ -1,0 +1,30 @@
+[Unit]
+# Instance name (%i) is the dongle SERIAL, e.g. tmt-sdr@19481419.service.
+# One instance per dongle dedicated to Track_My_Tracker; OP25 (or anything
+# else) uses other serials and the two coexist. A busy dongle is skipped, not
+# fatal, so they can even contend for the same radio without crashing.
+Description=Track_My_Tracker SDR sweep on dongle %i
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/Track_My_Tracker
+
+# Defaults; override per-dongle in /etc/track_my_tracker/sdr-<serial>.env
+# e.g.  TMT_INTERVAL=30   TMT_BANDS=433   (split spectrum across dongles).
+Environment=TMT_INTERVAL=60
+EnvironmentFile=-/etc/track_my_tracker/sdr-%i.env
+
+ExecStart=/home/pi/Track_My_Tracker/.venv/bin/python \
+    /home/pi/Track_My_Tracker/sweep.py \
+    --device %i --session sdr-%i --rotate-minutes 15 --interval ${TMT_INTERVAL}
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

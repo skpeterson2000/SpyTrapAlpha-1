@@ -1,0 +1,17 @@
+# Python environment
+.venv/
+__pycache__/
+*.pyc
+
+# Runtime data — never commit the live capture DB or logs
+sightings.db
+sightings.db-wal
+sightings.db-shm
+*.db
+*.log
+
+# Local config & secrets (push tokens, overrides)
+config.local.json
+
+# OS cruft
+.DS_Store
