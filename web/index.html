@@ -51,6 +51,12 @@
   .cat-watch{color:var(--med);border:1px solid var(--med);}
   .cat-threat{color:#fff;background:var(--high);}
   .cat-ignore{color:var(--dim);border:1px solid var(--line);}
+  /* VU-style signal meter: green (weak/far) -> red (strong/close) */
+  .vumeter{position:relative;display:inline-block;width:62px;height:10px;
+    border-radius:2px;vertical-align:middle;overflow:hidden;
+    background:linear-gradient(90deg,#2ea043 0%,#3fb950 45%,#e3b341 70%,#f0883e 85%,#f85149 100%);}
+  .vumeter > .m{position:absolute;top:0;right:0;height:100%;background:#0d1117;opacity:.86;}
+  .rssi-n{font-size:11px;color:var(--dim);padding-left:5px;}
   /* label editor */
   #ov { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none;
         align-items:center; justify-content:center; z-index:10; }
@@ -195,6 +201,14 @@ const fmtAgo = ts => {
   return (d/86400).toFixed(1)+'d';
 };
 const badge = t => `<span class="badge ${t}">${t}</span>`;
+// RSSI -> VU bar. Maps ~-100 dBm (weak/far) .. -30 dBm (strong/close) to 0..100%.
+const rssiMeter = v => {
+  if (v == null) return '<span class="muted">–</span>';
+  const pct = Math.max(0, Math.min(100, (v + 100) / 70 * 100));
+  return `<span class="vumeter" title="${v} dBm"><span class="m" `
+    + `style="width:${(100 - pct).toFixed(0)}%"></span></span>`
+    + `<span class="rssi-n">${v}</span>`;
+};
 
 async function refresh() {
   const tier = $('#tier').value, hours = $('#hours').value;
@@ -227,7 +241,7 @@ async function refresh() {
         <td>${s.radio}</td><td>${ident}</td>
         <td>${lab}</td>
         <td>${s.n_sessions}</td><td>${s.span_h.toFixed(1)}h</td>
-        <td>${s.rssi_max ?? '–'}</td><td>${fmtAgo(s.last)} ago</td>
+        <td>${rssiMeter(s.rssi_max)}</td><td>${fmtAgo(s.last)} ago</td>
         <td class="reason">${(s.reasons||[]).join('; ')}</td>`;
       tr.onclick = () => openDlg(s);
       tb.appendChild(tr);
