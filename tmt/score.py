@@ -33,11 +33,23 @@ def _mode(values):
     return max(counts, key=counts.get) if counts else None
 
 
-def score_identities(rows):
+TIER_RANK = {"info": 0, "LOW": 1, "MED": 2, "HIGH": 3}
+
+# Categories that silence an identity vs. escalate it.
+SUPPRESS_CATEGORIES = {"mine", "safe", "ignore"}
+
+
+def score_identities(rows, labels=None):
     """rows: dicts with radio, address, rssi, ts, tracker_type, session.
 
-    Returns a list of per-identity dicts sorted by descending score.
+    labels: optional {(radio, identity): {name, category, notes}} from user
+    curation. Categories mine/safe/ignore suppress an identity (drops to info
+    and sinks in the ranking); threat forces HIGH; watch pins it visible.
+
+    Returns a list of per-identity dicts sorted with live threats first,
+    suppressed/known identities last.
     """
+    labels = labels or {}
     groups = defaultdict(list)
     for r in rows:
         groups[(r["radio"], r["address"])].append(r)
@@ -69,17 +81,44 @@ def score_identities(rows):
             score += 3.0
             reasons.append("Find My tag in SEPARATED mode (away from owner)")
 
+        tier = _tier(score, n_sessions, tracker)
+
+        # Apply user curation last so it overrides the automatic verdict.
+        lab = labels.get((radio, address))
+        category = lab.get("category") if lab else None
+        suppressed = False
+        if category in SUPPRESS_CATEGORIES:
+            suppressed = True
+            tier = "info"
+            reasons.insert(0, f"labeled {category}"
+                              + (f" ({lab['name']})" if lab.get("name") else ""))
+        elif category == "threat":
+            score += 100.0           # dominate the ranking
+            tier = "HIGH"
+            reasons.insert(0, "labeled THREAT"
+                              + (f" ({lab['name']})" if lab.get("name") else ""))
+        elif category == "watch":
+            reasons.insert(0, "on watchlist"
+                              + (f" ({lab['name']})" if lab.get("name") else ""))
+            if TIER_RANK[tier] < TIER_RANK["LOW"]:
+                tier = "LOW"
+
         results.append({
             "radio": radio, "address": address, "tracker": tracker,
             "n": n, "n_sessions": n_sessions, "sessions": sorted(sessions),
             "span_h": span_h, "first": t0, "last": t1,
             "rssi_max": max(rssis) if rssis else None,
             "score": round(score, 1),
-            "tier": _tier(score, n_sessions, tracker),
+            "tier": tier,
             "reasons": reasons,
+            "label": lab.get("name") if lab else None,
+            "category": category,
+            "notes": lab.get("notes") if lab else None,
+            "suppressed": suppressed,
         })
 
-    results.sort(key=lambda d: d["score"], reverse=True)
+    # Live threats first; suppressed/known identities sink to the bottom.
+    results.sort(key=lambda d: (d["suppressed"], -d["score"]))
     return results
 
 

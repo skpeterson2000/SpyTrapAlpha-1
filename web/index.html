@@ -43,6 +43,38 @@
   .LOW  { color:var(--low);  border:1px solid var(--low); }
   .info { color:var(--dim);  border:1px solid var(--line); }
   tr.tracker td:first-child { box-shadow:inset 3px 0 0 var(--high); }
+  tbody tr { cursor:pointer; } tbody tr:hover { background:#1c2330; }
+  tr.suppressed { opacity:.45; }
+  .cat { padding:1px 6px; border-radius:4px; font-size:11px; }
+  .cat-mine{color:#79c0ff;border:1px solid #79c0ff;}
+  .cat-safe{color:var(--ok);border:1px solid var(--ok);}
+  .cat-watch{color:var(--med);border:1px solid var(--med);}
+  .cat-threat{color:#fff;background:var(--high);}
+  .cat-ignore{color:var(--dim);border:1px solid var(--line);}
+  /* label editor */
+  #ov { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none;
+        align-items:center; justify-content:center; z-index:10; }
+  #ov.show { display:flex; }
+  .dlg { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+         padding:18px; width:min(440px,92vw); }
+  .dlg h3 { margin:0 0 4px; font-size:15px; }
+  .dlg .who { color:var(--dim); font-size:12px; margin-bottom:12px;
+              word-break:break-all; }
+  .dlg label { display:block; font-size:12px; color:var(--dim); margin:10px 0 3px; }
+  .dlg input,.dlg textarea,.dlg select { width:100%; background:var(--bg);
+    color:var(--fg); border:1px solid var(--line); border-radius:6px;
+    padding:7px; font:inherit; }
+  .cats { display:flex; gap:6px; flex-wrap:wrap; }
+  .cats button { flex:1; background:var(--bg); color:var(--fg);
+    border:1px solid var(--line); border-radius:6px; padding:7px 4px;
+    cursor:pointer; font:inherit; font-size:12px; }
+  .cats button.sel { outline:2px solid var(--low); }
+  .dlg .row2 { display:flex; gap:8px; margin-top:16px; }
+  .dlg .row2 button { flex:1; padding:9px; border-radius:7px; cursor:pointer;
+    font:inherit; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  .dlg .save { background:var(--low); color:#04181b; border-color:var(--low);
+               font-weight:bold; }
+  .dlg .del { color:var(--high); border-color:var(--high); }
   #feed { max-height:70vh; overflow:auto; }
   .alert { padding:9px 14px; border-bottom:1px solid var(--line);
            animation:flash 1.2s ease-out; }
@@ -93,9 +125,10 @@
       <table id="suspects">
         <thead><tr>
           <th>tier</th><th>score</th><th>radio</th><th>identity</th>
-          <th>sess</th><th>span</th><th>rssi</th><th>last</th><th>why</th>
+          <th>label</th><th>sess</th><th>span</th><th>rssi</th><th>last</th>
+          <th>why</th>
         </tr></thead>
-        <tbody><tr><td colspan="9" class="muted">loading…</td></tr></tbody>
+        <tbody><tr><td colspan="10" class="muted">loading…</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -114,7 +147,33 @@
   </section>
 </main>
 
+<div id="ov">
+  <div class="dlg">
+    <h3>Label identity</h3>
+    <div class="who" id="dlg-who"></div>
+    <label>Name (friendly)</label>
+    <input id="dlg-name" placeholder="e.g. My iPhone, Neighbour's car">
+    <label>Category</label>
+    <div class="cats" id="dlg-cats">
+      <button data-c="mine">mine</button>
+      <button data-c="safe">safe</button>
+      <button data-c="watch">watch</button>
+      <button data-c="threat">threat</button>
+      <button data-c="ignore">ignore</button>
+    </div>
+    <label>Notes</label>
+    <textarea id="dlg-notes" rows="2"></textarea>
+    <div class="row2">
+      <button onclick="closeDlg()">cancel</button>
+      <button class="del" id="dlg-del" onclick="deleteLabel()">remove</button>
+      <button class="save" onclick="saveLabel()">save</button>
+    </div>
+  </div>
+</div>
+
 <script>
+const CAT = {mine:'mine',safe:'safe',watch:'watch',threat:'threat',ignore:'ignore'};
+let dlgTarget = null, dlgCat = null;
 const $ = s => document.querySelector(s);
 const fmtAgo = ts => {
   const d = Date.now()/1000 - ts;
@@ -139,15 +198,23 @@ async function refresh() {
       `/api/suspects?hours=${hours}&min_tier=${tier}&top=60`)).json();
     const tb = $('#suspects tbody');
     tb.innerHTML = r.suspects.length ? '' :
-      '<tr><td colspan="9" class="muted">no suspects at this tier/window</td></tr>';
+      '<tr><td colspan="10" class="muted">no suspects at this tier/window</td></tr>';
     for (const s of r.suspects) {
       const tr = document.createElement('tr');
-      if (s.tracker) tr.className = 'tracker';
+      const cls = [];
+      if (s.tracker) cls.push('tracker');
+      if (s.suppressed) cls.push('suppressed');
+      tr.className = cls.join(' ');
+      const lab = s.category
+        ? `<span class="cat cat-${s.category}">${s.label || s.category}</span>`
+        : '<span class="muted" style="padding:0">+ tag</span>';
       tr.innerHTML = `<td>${badge(s.tier)}</td><td>${s.score}</td>
         <td>${s.radio}</td><td>${s.address ?? '?'}</td>
+        <td>${lab}</td>
         <td>${s.n_sessions}</td><td>${s.span_h.toFixed(1)}h</td>
         <td>${s.rssi_max ?? '–'}</td><td>${fmtAgo(s.last)} ago</td>
         <td class="reason">${(s.reasons||[]).join('; ')}</td>`;
+      tr.onclick = () => openDlg(s);
       tb.appendChild(tr);
     }
     const at = $('#activity tbody');
@@ -201,6 +268,42 @@ function connectStream() {
     $('#conn').classList.remove('live');
     $('#connlabel').textContent = 'reconnecting…';   // EventSource auto-retries
   };
+}
+
+// ---- label editor ----------------------------------------------------
+function setCat(c) {
+  dlgCat = c;
+  document.querySelectorAll('#dlg-cats button').forEach(b =>
+    b.classList.toggle('sel', b.dataset.c === c));
+}
+function openDlg(s) {
+  dlgTarget = {radio: s.radio, identity: s.address};
+  $('#dlg-who').textContent = `${s.radio} · ${s.address}`
+    + (s.tracker ? ` · ${s.tracker}` : '');
+  $('#dlg-name').value = s.label || '';
+  $('#dlg-notes').value = s.notes || '';
+  setCat(s.category || null);
+  $('#dlg-del').style.display = s.category ? '' : 'none';
+  $('#ov').classList.add('show');
+}
+function closeDlg() { $('#ov').classList.remove('show'); dlgTarget = null; }
+document.querySelectorAll('#dlg-cats button').forEach(b =>
+  b.onclick = () => setCat(b.dataset.c));
+$('#ov').onclick = e => { if (e.target.id === 'ov') closeDlg(); };
+
+async function saveLabel() {
+  if (!dlgTarget) return;
+  await fetch('/api/labels', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({...dlgTarget, name: $('#dlg-name').value || null,
+      category: dlgCat, notes: $('#dlg-notes').value || null})});
+  closeDlg(); refresh();
+}
+async function deleteLabel() {
+  if (!dlgTarget) return;
+  const q = new URLSearchParams(dlgTarget).toString();
+  await fetch('/api/labels?' + q, {method: 'DELETE'});
+  closeDlg(); refresh();
 }
 
 $('#tier').onchange = refresh;

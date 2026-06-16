@@ -16,8 +16,9 @@ import asyncio
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Body, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from pydantic import BaseModel
 
 from . import config as configmod
 from .db import Store
@@ -74,14 +75,60 @@ def suspects(hours: float = Query(24, ge=0), min_tier: str = "info",
         import time
         since = time.time() - hours * 3600 if hours else 0
         rows = s.rows_since(since)
-        ranked = score_identities(rows)
+        ranked = score_identities(rows, s.get_labels())
         floor = TIER_RANK.get(min_tier, 0)
-        ranked = [r for r in ranked if TIER_RANK.get(r["tier"], 0) >= floor]
+        # Always keep suppressed rows visible so the user can un-label them,
+        # regardless of the tier filter.
+        ranked = [r for r in ranked
+                  if r.get("suppressed") or TIER_RANK.get(r["tier"], 0) >= floor]
         return {
             "window_hours": hours,
             "suspects": ranked[:top],
             "tracker_activity": tracker_class_activity(rows),
         }
+    finally:
+        s.close()
+
+
+CATEGORIES = {"mine", "safe", "watch", "threat", "ignore"}
+
+
+class LabelIn(BaseModel):
+    radio: str
+    identity: str
+    name: str | None = None
+    category: str | None = None
+    notes: str | None = None
+
+
+@app.get("/api/labels")
+def list_labels():
+    s = _store()
+    try:
+        return {"labels": s.list_labels(), "categories": sorted(CATEGORIES)}
+    finally:
+        s.close()
+
+
+@app.post("/api/labels")
+def upsert_label(label: LabelIn = Body(...)):
+    if label.category and label.category not in CATEGORIES:
+        raise HTTPException(422, f"category must be one of {sorted(CATEGORIES)}")
+    s = _store()
+    try:
+        s.set_label(radio=label.radio, identity=label.identity,
+                    name=label.name, category=label.category, notes=label.notes)
+        return {"ok": True}
+    finally:
+        s.close()
+
+
+@app.delete("/api/labels")
+def delete_label(radio: str, identity: str):
+    s = _store()
+    try:
+        s.delete_label(radio, identity)
+        return {"ok": True}
     finally:
         s.close()
 

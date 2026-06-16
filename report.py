@@ -15,7 +15,7 @@ import sqlite3
 import sys
 import time
 
-from tmt.db import DEFAULT_PATH
+from tmt.db import DEFAULT_PATH, Store
 from tmt.score import score_identities, tracker_class_activity
 
 try:
@@ -68,7 +68,10 @@ def main():
         print("No sightings found. Run scan.py / sweep.py first.")
         return
 
-    ranked = score_identities(rows)
+    store = Store(args.db, check_same_thread=False)
+    labels = store.get_labels()
+    store.close()
+    ranked = score_identities(rows, labels)
     floor = TIER_ORDER[args.min_tier]
     shown = [r for r in ranked if TIER_ORDER[r["tier"]] >= floor][:args.top]
 

@@ -47,6 +47,21 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_ts       ON alerts(ts);
 CREATE INDEX IF NOT EXISTS idx_alerts_identity ON alerts(identity);
+
+-- User curation: tag an identity so the scorer can suppress the benign and
+-- escalate the flagged. category drives behavior (see tmt/score.py):
+--   mine|safe|ignore -> suppressed from alerts
+--   watch            -> kept/pinned
+--   threat           -> forced HIGH
+CREATE TABLE IF NOT EXISTS labels (
+    radio     TEXT NOT NULL,
+    identity  TEXT NOT NULL,
+    name      TEXT,
+    category  TEXT,
+    notes     TEXT,
+    updated   REAL,
+    PRIMARY KEY (radio, identity)
+);
 """
 
 
@@ -134,6 +149,42 @@ class Store:
                 d["channels"] = []
             out.append(d)
         return out
+
+    # ---- labels (user curation) ------------------------------------------
+    def get_labels(self):
+        """Map {(radio, identity): {name, category, notes, updated}}."""
+        cur = self.conn.execute(
+            "SELECT radio,identity,name,category,notes,updated FROM labels")
+        out = {}
+        for radio, identity, name, category, notes, updated in cur.fetchall():
+            out[(radio, identity)] = {
+                "name": name, "category": category, "notes": notes,
+                "updated": updated}
+        return out
+
+    def list_labels(self):
+        cur = self.conn.execute(
+            "SELECT radio,identity,name,category,notes,updated "
+            "FROM labels ORDER BY updated DESC")
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def set_label(self, *, radio, identity, name=None, category=None,
+                  notes=None, ts=None):
+        self.conn.execute(
+            """INSERT INTO labels (radio,identity,name,category,notes,updated)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(radio,identity) DO UPDATE SET
+                 name=excluded.name, category=excluded.category,
+                 notes=excluded.notes, updated=excluded.updated""",
+            (radio, identity, name, category, notes,
+             ts if ts is not None else time.time()))
+        self.conn.commit()
+
+    def delete_label(self, radio, identity):
+        self.conn.execute("DELETE FROM labels WHERE radio=? AND identity=?",
+                          (radio, identity))
+        self.conn.commit()
 
     def commit(self):
         self.conn.commit()

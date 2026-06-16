@@ -34,10 +34,13 @@ class AlertEngine:
         """One pass. Returns the list of newly-fired alerts."""
         now = now or time.time()
         rows = self.store.rows_since(now - self.window)
-        ranked = score_identities(rows)
+        labels = self.store.get_labels()
+        ranked = score_identities(rows, labels)
 
         candidates = []
         for r in ranked:
+            if r.get("suppressed"):          # labeled mine/safe/ignore
+                continue
             if TIER_RANK.get(r["tier"], 0) < self.min_rank:
                 continue
             last = self.store.last_alert_ts(r["address"])
