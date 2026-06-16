@@ -234,7 +234,8 @@ def index():
     """Serve the web dashboard; fall back to the API listing if it's absent."""
     page = WEB_DIR / "index.html"
     if page.exists():
-        return FileResponse(str(page))
+        # no-cache so an updated dashboard shows on reload (revalidate every time)
+        return FileResponse(str(page), headers={"Cache-Control": "no-cache"})
     return JSONResponse({
         "service": "SpyTrap API",
         "endpoints": ["/api/health", "/api/stats", "/api/suspects",
