@@ -134,6 +134,12 @@
   </section>
 
   <section>
+    <div class="panel" style="margin-bottom:14px; border-color:var(--med)">
+      <h2>★ New &amp; sticking — appeared recently, now persisting</h2>
+      <table id="novelty"><tbody>
+        <tr><td class="muted">…</td></tr>
+      </tbody></table>
+    </div>
     <div class="panel" style="margin-bottom:14px">
       <h2>Live alerts <span id="livecount" class="muted" style="padding:0"></span></h2>
       <div id="feed"><div class="muted">waiting for alerts…</div></div>
@@ -234,7 +240,36 @@ async function refresh() {
       at.appendChild(tr);
     }
   } catch (e) { /* transient; next tick retries */ }
+  refreshNovelty();
   refreshDecodes();
+}
+
+async function refreshNovelty() {
+  try {
+    const r = await (await fetch('/api/novelty?new_hours=48&min_sessions=2')).json();
+    const tb = $('#novelty tbody');
+    if (!r.items.length) {
+      tb.innerHTML = '<tr><td class="muted">nothing new is sticking around '
+        + '(new+persistent shows here)</td></tr>';
+      return;
+    }
+    tb.innerHTML = '';
+    for (const s of r.items) {
+      const bars = '▰'.repeat(Math.round(s.novelty * 5)).padEnd(5, '▱');
+      const lab = s.category
+        ? ` <span class="cat cat-${s.category}">${s.label || s.category}</span>` : '';
+      const tr = document.createElement('tr');
+      if (s.tracker) tr.className = 'tracker';
+      tr.innerHTML = `<td>${badge(s.tier)}</td>
+        <td>${s.radio}</td><td>${s.address ?? '?'}${lab}</td>
+        <td title="novelty">${bars}</td>
+        <td>first ${s.first_seen_h_ago}h ago</td>
+        <td><b>${s.n_sessions}</b> sess</td>
+        <td class="muted">${fmtAgo(s.last)} ago</td>`;
+      tr.onclick = () => openDlg(s);
+      tb.appendChild(tr);
+    }
+  } catch (e) {}
 }
 
 async function refreshDecodes() {

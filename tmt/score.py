@@ -133,6 +133,35 @@ def _tier(score, n_sessions, tracker):
     return "info"
 
 
+def novelty_view(scored, now, new_hours=48.0, min_sessions=2):
+    """The 'new AND sticking' intersection over already-scored identities.
+
+    new+transient is noise; new+persistent is the thing to worry about. Keep
+    identities whose FIRST sighting is within new_hours and that have since
+    appeared in >= min_sessions distinct sessions. Excludes suppressed
+    (labeled mine/safe/ignore). Rank by persistence, then recency.
+
+    Call with `scored` from score_identities() over a window LONGER than
+    new_hours, so first-seen is real and not just the edge of the window.
+    """
+    out = []
+    for s in scored:
+        if s.get("suppressed"):
+            continue
+        age_h = (now - s["first"]) / 3600.0
+        if age_h > new_hours or s["n_sessions"] < min_sessions:
+            continue
+        out.append({
+            **s,
+            "age_h": age_h,
+            "first_seen_h_ago": round(age_h, 1),
+            # 0..1 recency: 1 = just appeared, 0 = at the new_hours edge.
+            "novelty": round(max(0.0, 1.0 - age_h / new_hours), 2),
+        })
+    out.sort(key=lambda d: (-d["n_sessions"], d["age_h"]))
+    return out
+
+
 def tracker_class_activity(rows):
     """MAC-agnostic view: how widely each dangerous tracker class appears.
 

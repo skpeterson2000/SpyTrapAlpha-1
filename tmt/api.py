@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from . import config as configmod
 from .db import Store
-from .score import score_identities, tracker_class_activity
+from .score import score_identities, tracker_class_activity, novelty_view
 from .alerts import TIER_RANK
 
 CFG = configmod.load()
@@ -129,6 +129,24 @@ def delete_label(radio: str, identity: str):
     try:
         s.delete_label(radio, identity)
         return {"ok": True}
+    finally:
+        s.close()
+
+
+@app.get("/api/novelty")
+def novelty(new_hours: float = Query(48, ge=1), min_sessions: int = Query(2, ge=1),
+            lookback_hours: float = Query(168, ge=1), top: int = 50):
+    """'New & sticking' — recently first-seen AND persistent across sessions."""
+    s = _store()
+    try:
+        import time
+        now = time.time()
+        rows = s.rows_since(now - lookback_hours * 3600)
+        scored = score_identities(rows, s.get_labels())
+        items = novelty_view(scored, now, new_hours=new_hours,
+                             min_sessions=min_sessions)
+        return {"new_hours": new_hours, "min_sessions": min_sessions,
+                "items": items[:top]}
     finally:
         s.close()
 
