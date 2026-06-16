@@ -283,6 +283,7 @@ async function refreshNovelty() {
       tr.innerHTML = `<td>${badge(s.tier)}</td>
         <td>${s.radio}</td><td>${who}${lab}</td>
         <td title="novelty">${bars}</td>
+        <td>${rssiMeter(s.rssi_max)}</td>
         <td>first ${s.first_seen_h_ago}h ago</td>
         <td><b>${s.n_sessions}</b> sess</td>
         <td class="muted">${fmtAgo(s.last)} ago</td>`;
