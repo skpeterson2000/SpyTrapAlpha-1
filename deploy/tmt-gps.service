@@ -1,0 +1,20 @@
+[Unit]
+Description=Track_My_Tracker GPS poller (gpsd -> tmpfs fix for all sensors)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/Track_My_Tracker
+RuntimeDirectory=tmt
+RuntimeDirectoryMode=0755
+ExecStart=/home/pi/Track_My_Tracker/.venv/bin/python /home/pi/Track_My_Tracker/gpsdaemon.py
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

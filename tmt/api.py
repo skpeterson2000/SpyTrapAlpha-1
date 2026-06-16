@@ -151,6 +151,37 @@ def novelty(new_hours: float = Query(48, ge=1), min_sessions: int = Query(2, ge=
         s.close()
 
 
+@app.get("/api/gps")
+def gps():
+    """Current GPS fix + config, so a UI can show location state."""
+    from .gps import read_fix
+    g = CFG.get("gps", {})
+    fix = read_fix(g.get("fix_file"), g.get("max_age_seconds", 30)) \
+        if g.get("enabled") and g.get("fix_file") else None
+    return {"enabled": bool(g.get("enabled")), "source": f"{g.get('host')}:{g.get('port')}",
+            "have_fix": fix is not None, "fix": fix}
+
+
+@app.get("/api/track")
+def track(identity: str, radio: str = None, hours: float = Query(168, ge=0)):
+    """Location trail for one identity — the 'followed me from X to Y' path."""
+    s = _store()
+    try:
+        import time
+        since = time.time() - hours * 3600 if hours else 0
+        q = ("SELECT ts,lat,lon,rssi FROM sightings WHERE address=? "
+             "AND lat IS NOT NULL AND ts>=?")
+        args = [identity, since]
+        if radio:
+            q += " AND radio=?"; args.append(radio)
+        q += " ORDER BY ts"
+        pts = [{"ts": ts, "lat": lat, "lon": lon, "rssi": rssi}
+               for ts, lat, lon, rssi in s.conn.execute(q, args)]
+        return {"identity": identity, "points": pts}
+    finally:
+        s.close()
+
+
 @app.get("/api/decodes")
 def decodes(hours: float = Query(6, ge=0), limit: int = 100):
     s = _store()

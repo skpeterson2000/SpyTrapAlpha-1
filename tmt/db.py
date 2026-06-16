@@ -27,7 +27,10 @@ CREATE TABLE IF NOT EXISTS sightings (
     mfg_data      TEXT,                    -- JSON {company_id: hex}
     service_data  TEXT,                    -- JSON {uuid: hex}
     tracker_type  TEXT,                    -- classified label or NULL
-    session       TEXT                     -- run/location tag for "did it follow me"
+    session       TEXT,                    -- run/location tag for "did it follow me"
+    lat           REAL,                    -- gps latitude at sighting (or NULL)
+    lon           REAL,                    -- gps longitude
+    gps_mode      INTEGER                  -- 2=2D, 3=3D fix; NULL/0/1 = none
 );
 CREATE INDEX IF NOT EXISTS idx_sightings_ts      ON sightings(ts);
 CREATE INDEX IF NOT EXISTS idx_sightings_addr    ON sightings(address);
@@ -91,7 +94,36 @@ class Store:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+        # GPS auto-stamping config (latest fix is shared via a tmpfs file).
+        from . import config as _config
+        g = _config.load().get("gps", {})
+        self._gps_enabled = g.get("enabled", False)
+        self._gps_fix_file = g.get("fix_file")
+        self._gps_max_age = g.get("max_age_seconds", 30)
+        self._fix_cache = None
+        self._fix_cache_ts = 0.0
+
+    def _migrate(self):
+        """Add columns introduced after a DB was first created."""
+        have = {r[1] for r in self.conn.execute("PRAGMA table_info(sightings)")}
+        for col, decl in (("lat", "REAL"), ("lon", "REAL"),
+                          ("gps_mode", "INTEGER")):
+            if col not in have:
+                self.conn.execute(f"ALTER TABLE sightings ADD COLUMN {col} {decl}")
+
+    def _current_fix(self):
+        """Latest fresh GPS fix (cached ~3s) or None."""
+        if not self._gps_enabled or not self._gps_fix_file:
+            return None
+        now = time.time()
+        if now - self._fix_cache_ts > 3.0:
+            from .gps import read_fix
+            self._fix_cache = read_fix(self._gps_fix_file, self._gps_max_age)
+            self._fix_cache_ts = now
+        return self._fix_cache
 
     def add_sighting(self, *, radio, address=None, address_type=None, name=None,
                      rssi=None, tx_power=None, service_uuids=None,
@@ -99,12 +131,16 @@ class Store:
                      tracker_type=None, session=None, ts=None):
         mfg = manufacturer_data or {}
         sd = service_data or {}
+        fix = self._current_fix()
+        lat = fix["lat"] if fix else None
+        lon = fix["lon"] if fix else None
+        gps_mode = fix["mode"] if fix else None
         self.conn.execute(
             """INSERT INTO sightings
                (ts, radio, address, address_type, name, rssi, tx_power,
                 service_uuids, mfg_company, mfg_data, service_data,
-                tracker_type, session)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                tracker_type, session, lat, lon, gps_mode)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 ts if ts is not None else time.time(),
                 radio, address, address_type, name, rssi, tx_power,
@@ -112,7 +148,7 @@ class Store:
                 next(iter(mfg), None),
                 json.dumps({str(k): v.hex() for k, v in mfg.items()}),
                 json.dumps({str(k): v.hex() for k, v in sd.items()}),
-                tracker_type, session,
+                tracker_type, session, lat, lon, gps_mode,
             ),
         )
 

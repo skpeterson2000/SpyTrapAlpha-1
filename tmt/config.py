@@ -59,6 +59,17 @@ DEFAULTS = {
         "protocols": "all",             # all unencrypted ISM decoders
     },
 
+    # Location from a gpsd (e.g. the TowerWitch Pi, exposed with `gpsd -G`).
+    # A poller holds the latest fix in fix_file; Store auto-stamps every
+    # sighting with lat/lon so all sensors become location-aware for free.
+    "gps": {
+        "enabled": True,
+        "host": "127.0.0.1",            # override in config.local.json (e.g. TowerWitch)
+        "port": 2947,
+        "fix_file": "/run/tmt/gps.json",
+        "max_age_seconds": 30,          # don't stamp sightings with a stale fix
+    },
+
     "api": {"host": "0.0.0.0", "port": 8080},
 }
 
