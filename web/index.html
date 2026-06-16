@@ -201,13 +201,14 @@ const fmtAgo = ts => {
   return (d/86400).toFixed(1)+'d';
 };
 const badge = t => `<span class="badge ${t}">${t}</span>`;
-// RSSI -> VU bar. Maps ~-100 dBm (weak/far) .. -30 dBm (strong/close) to 0..100%.
-const rssiMeter = v => {
+// RSSI -> VU bar, green(weak)->red(strong). Default scale is BLE/SDR dBm
+// (~-100..-30); pass lo/hi for other scales (rtl_433 level runs ~-30..0).
+const rssiMeter = (v, lo = -100, hi = -30) => {
   if (v == null) return '<span class="muted">–</span>';
-  const pct = Math.max(0, Math.min(100, (v + 100) / 70 * 100));
-  return `<span class="vumeter" title="${v} dBm"><span class="m" `
+  const pct = Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100));
+  return `<span class="vumeter" title="${v} (signal)"><span class="m" `
     + `style="width:${(100 - pct).toFixed(0)}%"></span></span>`
-    + `<span class="rssi-n">${v}</span>`;
+    + `<span class="rssi-n">${(+v).toFixed(0)}</span>`;
 };
 
 async function refresh() {
@@ -314,6 +315,7 @@ async function refreshDecodes() {
       tr.innerHTML = `<td><b>${d.model}</b></td>
         <td>id ${(d.identity||'').split(':').pop()}</td>
         <td>${d.freq_mhz ? d.freq_mhz.toFixed(2)+'M' : ''}</td>
+        <td>${d.rssi != null ? rssiMeter(d.rssi, -30, 0) : ''}</td>
         <td class="reason">${fields}</td>
         <td class="muted">${fmtAgo(d.ts)} ago</td>`;
       tb.appendChild(tr);
