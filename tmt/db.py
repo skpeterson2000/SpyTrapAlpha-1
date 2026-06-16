@@ -155,7 +155,7 @@ class Store:
     def rows_since(self, since_ts):
         """Sighting dicts at/after since_ts — the engine's scoring window."""
         cur = self.conn.execute(
-            "SELECT radio,address,rssi,ts,tracker_type,session "
+            "SELECT radio,address,rssi,ts,tracker_type,session,name "
             "FROM sightings WHERE ts >= ? ORDER BY ts", (since_ts,))
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]

@@ -64,6 +64,13 @@ def score_identities(rows, labels=None):
         span_h = (t1 - t0) / 3600.0
         rssis = [r["rssi"] for r in g if r["rssi"] is not None]
         tracker = _mode(r["tracker_type"] for r in g)
+        # The device-offered name — the automatic, self-reported identity,
+        # distinct from the MAC and from any user label. Only meaningful where
+        # the name truly comes from the device: BLE local name / decoded model.
+        # (Raw SDR sweep stores an internal "ism-<band>" tag, not a device name.)
+        broadcast_name = None
+        if radio in ("ble", "decode"):
+            broadcast_name = _mode(r.get("name") for r in g if r.get("name"))
 
         score = 0.0
         reasons = []
@@ -111,6 +118,7 @@ def score_identities(rows, labels=None):
             "score": round(score, 1),
             "tier": tier,
             "reasons": reasons,
+            "broadcast_name": broadcast_name,
             "label": lab.get("name") if lab else None,
             "category": category,
             "notes": lab.get("notes") if lab else None,

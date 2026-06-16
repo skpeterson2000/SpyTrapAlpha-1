@@ -220,8 +220,11 @@ async function refresh() {
       const lab = s.category
         ? `<span class="cat cat-${s.category}">${s.label || s.category}</span>`
         : '<span class="muted" style="padding:0">+ tag</span>';
+      const ident = s.broadcast_name
+        ? `<b>${s.broadcast_name}</b><br><span class="muted" style="padding:0">${s.address ?? '?'}</span>`
+        : (s.address ?? '?');
       tr.innerHTML = `<td>${badge(s.tier)}</td><td>${s.score}</td>
-        <td>${s.radio}</td><td>${s.address ?? '?'}</td>
+        <td>${s.radio}</td><td>${ident}</td>
         <td>${lab}</td>
         <td>${s.n_sessions}</td><td>${s.span_h.toFixed(1)}h</td>
         <td>${s.rssi_max ?? '–'}</td><td>${fmtAgo(s.last)} ago</td>
@@ -260,8 +263,11 @@ async function refreshNovelty() {
         ? ` <span class="cat cat-${s.category}">${s.label || s.category}</span>` : '';
       const tr = document.createElement('tr');
       if (s.tracker) tr.className = 'tracker';
+      const who = s.broadcast_name
+        ? `<b>${s.broadcast_name}</b> <span class="muted" style="padding:0">${s.address}</span>`
+        : (s.address ?? '?');
       tr.innerHTML = `<td>${badge(s.tier)}</td>
-        <td>${s.radio}</td><td>${s.address ?? '?'}${lab}</td>
+        <td>${s.radio}</td><td>${who}${lab}</td>
         <td title="novelty">${bars}</td>
         <td>first ${s.first_seen_h_ago}h ago</td>
         <td><b>${s.n_sessions}</b> sess</td>
@@ -349,8 +355,9 @@ function setCat(c) {
 function openDlg(s) {
   dlgTarget = {radio: s.radio, identity: s.address};
   $('#dlg-who').textContent = `${s.radio} · ${s.address}`
+    + (s.broadcast_name ? ` · “${s.broadcast_name}”` : '')
     + (s.tracker ? ` · ${s.tracker}` : '');
-  $('#dlg-name').value = s.label || '';
+  $('#dlg-name').value = s.label || s.broadcast_name || '';
   $('#dlg-notes').value = s.notes || '';
   setCat(s.category || null);
   $('#dlg-del').style.display = s.category ? '' : 'none';
