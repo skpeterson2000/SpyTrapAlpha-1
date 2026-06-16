@@ -61,6 +61,11 @@ class DecodeSensor:
                     frame = json.loads(line)
                 except ValueError:
                     continue
+                # rtl_433 also emits status/metadata lines (center_frequency,
+                # hop_times, …) with no "model"; only real device decodes have
+                # a model. Skip everything else.
+                if "model" not in frame:
+                    continue
                 self._handle(frame)
         finally:
             if proc.poll() is None:
