@@ -66,7 +66,7 @@ python3 -m venv .venv
 ./.venv/bin/python report.py            # cross-session threat report
 
 # the API + dashboard
-./.venv/bin/python serve.py             # http://<host>:8080/
+./.venv/bin/python serve.py             # http://<host>:8100/
 ```
 
 `./.venv/bin/python -m tmt.devices` lists RTL-SDR dongles by serial.
@@ -121,6 +121,20 @@ Alert sounds: see [`sounds/README.md`](sounds/README.md).
 | `GET /api/suspects?hours=&min_tier=` | live ranked scoring |
 | `GET /api/alerts?hours=&limit=` | recent persisted alerts |
 | `GET /api/stream` | SSE stream of new alerts |
+
+## Ports
+
+SpyTrap owns the **8100–8109** block (block-per-service convention, so each
+program has room for auxiliary ports without colliding):
+
+| Port | Use |
+|------|-----|
+| **8100** | JSON/SSE API + web dashboard |
+| 8101–8109 | reserved (metrics / websocket / admin / future) |
+
+Set via `api.port` in config. Neighboring blocks in this deployment: 8080–8089
+(OP25), 8090–8099 (separate program). The API binds `0.0.0.0` (LAN-reachable);
+set `api.host` to `127.0.0.1` to keep it local-only.
 
 ## Decoding (optional, gated)
 

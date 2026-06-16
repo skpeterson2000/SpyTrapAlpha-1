@@ -70,7 +70,7 @@ DEFAULTS = {
         "max_age_seconds": 30,          # don't stamp sightings with a stale fix
     },
 
-    "api": {"host": "0.0.0.0", "port": 8080},
+    "api": {"host": "0.0.0.0", "port": 8100},
 }
 
 
