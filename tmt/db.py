@@ -62,6 +62,22 @@ CREATE TABLE IF NOT EXISTS labels (
     updated   REAL,
     PRIMARY KEY (radio, identity)
 );
+
+-- Decoded UNENCRYPTED ISM frames (rtl_433). Full structured frame retained for
+-- the decode view; each also writes a sighting (radio='decode') so a recurring
+-- device id (e.g. a TPMS sensor following you) scores like any other identity.
+CREATE TABLE IF NOT EXISTS decodes (
+    id        INTEGER PRIMARY KEY,
+    ts        REAL NOT NULL,
+    model     TEXT,
+    dev_id    TEXT,
+    identity  TEXT,                      -- model:id  (matches the sighting addr)
+    freq_mhz  REAL,
+    rssi      REAL,
+    json      TEXT                       -- full decoded frame
+);
+CREATE INDEX IF NOT EXISTS idx_decodes_ts       ON decodes(ts);
+CREATE INDEX IF NOT EXISTS idx_decodes_identity ON decodes(identity);
 """
 
 
@@ -148,6 +164,39 @@ class Store:
             except (ValueError, TypeError):
                 d["channels"] = []
             out.append(d)
+        return out
+
+    # ---- decoded ISM frames ----------------------------------------------
+    def add_decode(self, *, ts, model, dev_id, identity, freq_mhz, rssi,
+                   frame, session):
+        import json as _json
+        self.conn.execute(
+            """INSERT INTO decodes (ts,model,dev_id,identity,freq_mhz,rssi,json)
+               VALUES (?,?,?,?,?,?,?)""",
+            (ts, model, dev_id, identity, freq_mhz, rssi, _json.dumps(frame)))
+        # Mirror into sightings so a recurring decoded device id scores like
+        # any other identity (recurrence / labels / alerts all apply).
+        self.add_sighting(radio="decode", address=identity, name=model,
+                          rssi=int(rssi) if rssi is not None else None,
+                          session=session, ts=ts)
+        self.conn.commit()
+
+    def recent_decodes(self, since_ts=None, limit=100):
+        import json as _json
+        q = "SELECT ts,model,dev_id,identity,freq_mhz,rssi,json FROM decodes"
+        args = []
+        if since_ts is not None:
+            q += " WHERE ts >= ?"; args.append(since_ts)
+        q += " ORDER BY id DESC LIMIT ?"; args.append(limit)
+        out = []
+        for ts, model, dev_id, identity, freq, rssi, j in self.conn.execute(q, args):
+            try:
+                frame = _json.loads(j) if j else {}
+            except ValueError:
+                frame = {}
+            out.append({"ts": ts, "model": model, "dev_id": dev_id,
+                        "identity": identity, "freq_mhz": freq, "rssi": rssi,
+                        "frame": frame})
         return out
 
     # ---- labels (user curation) ------------------------------------------

@@ -29,9 +29,17 @@ It is built to run unattended on a Raspberry Pi.
 2. **Scoring** (`tmt/score.py`) ranks each identity (a BLE address or an SDR
    frequency) by how much it behaves like something following you: recurring
    across **sessions**, persistent over time, and/or a known tracker class.
-3. **Alerting** (`alertd.py`) raises tiered alerts (LOW/MED/HIGH), deduped per
-   identity, and fans them out to audible / push / log / database.
-4. **API + dashboard** (`serve.py`, `web/`) expose everything as JSON plus a
+3. **Curation** (labels) lets you tag any identity **Mine / Safe / Watch /
+   Threat / Ignore** (with a name + notes). The scorer suppresses the benign
+   (drops them to *info* and sinks them) and escalates threats to HIGH, turning
+   a noisy list into a real watchlist. Click any row in the dashboard to tag it.
+4. **Alerting** (`alertd.py`) raises tiered alerts (LOW/MED/HIGH), deduped per
+   identity, skipping suppressed ones, and fans them out to audible / push /
+   log / database.
+5. **Decoding** (optional, gated — `decode.py`) decodes *unencrypted* ISM
+   device frames via `rtl_433`; a recurring decoded device id (e.g. a TPMS tire
+   sensor) becomes a first-class recurrence identity. **Ships inert** — see below.
+6. **API + dashboard** (`serve.py`, `web/`) expose everything as JSON plus a
    live Server-Sent-Events stream, with a self-contained web UI.
 
 ### Why "sessions"?
@@ -111,6 +119,36 @@ Alert sounds: see [`sounds/README.md`](sounds/README.md).
 | `GET /api/suspects?hours=&min_tier=` | live ranked scoring |
 | `GET /api/alerts?hours=&limit=` | recent persisted alerts |
 | `GET /api/stream` | SSE stream of new alerts |
+
+## Decoding (optional, gated)
+
+Beyond detecting *that* a signal recurs, Track_My_Tracker can decode the
+**unencrypted** device telemetry already broadcast in the clear on the ISM
+bands (via [`rtl_433`](https://github.com/merbanan/rtl_433)) — TPMS tire
+sensors, weather stations, remotes, asset tags. The standout for anti-stalking:
+a **TPMS sensor id** is broadcast openly, so a vehicle tailing you shows the
+same sensor ids reappearing across your sessions — a specific "this car is
+following me" signal. Decoded ids flow into the same recurrence / labels /
+alerts machinery.
+
+**This is deliberately gated and ships disabled.** It decodes only clear,
+unencrypted ISM device frames — never encrypted, voice, or cellular traffic.
+Nothing decodes until you turn it on *and* attest authorization:
+
+```bash
+sudo apt install rtl-433
+
+# one-off attended run:
+./.venv/bin/python decode.py --enable --i-am-authorized --duration 60
+
+# or persistent: set both in config.local.json, then enable the service
+#   { "decode": { "enabled": true, "authorized": true } }
+sudo systemctl enable --now tmt-decode@<serial>.service
+```
+
+By enabling it you attest you may lawfully receive these public unencrypted
+broadcasts in your jurisdiction. Point it at a dongle serial no other service
+(sweep / OP25) is using.
 
 ## Ethics & legality
 

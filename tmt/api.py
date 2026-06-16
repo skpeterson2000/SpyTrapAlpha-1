@@ -133,6 +133,18 @@ def delete_label(radio: str, identity: str):
         s.close()
 
 
+@app.get("/api/decodes")
+def decodes(hours: float = Query(6, ge=0), limit: int = 100):
+    s = _store()
+    try:
+        import time
+        since = time.time() - hours * 3600 if hours else None
+        return {"decode_enabled": bool(CFG["decode"].get("enabled")),
+                "decodes": s.recent_decodes(since_ts=since, limit=limit)}
+    finally:
+        s.close()
+
+
 @app.get("/api/alerts")
 def alerts(hours: float = Query(0, ge=0), limit: int = 100):
     s = _store()

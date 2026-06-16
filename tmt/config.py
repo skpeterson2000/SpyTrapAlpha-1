@@ -43,6 +43,22 @@ DEFAULTS = {
 
     "log": {"enabled": True, "file": str(ROOT / "alerts.log")},
 
+    # Decode of UNENCRYPTED ISM device frames (rtl_433). Ships INERT: BOTH
+    # flags must be true before any decoding runs. `authorized` is an explicit
+    # attestation that you are permitted to receive these public broadcasts in
+    # your jurisdiction. Decoding is strictly clear-frame ISM telemetry — never
+    # decryption, voice, or cellular.
+    "decode": {
+        "enabled": False,
+        "authorized": False,
+        "device": None,                 # dongle serial; null = first free
+        # rtl_433 listens with frequency hopping across these (it decodes 315
+        # and 433.92 simultaneously well; 915 added for ITU-2 devices).
+        "frequencies": ["433.92M", "315M", "915M"],
+        "hop_seconds": 30,
+        "protocols": "all",             # all unencrypted ISM decoders
+    },
+
     "api": {"host": "0.0.0.0", "port": 8080},
 }
 

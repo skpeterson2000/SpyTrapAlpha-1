@@ -138,10 +138,16 @@
       <h2>Live alerts <span id="livecount" class="muted" style="padding:0"></span></h2>
       <div id="feed"><div class="muted">waiting for alerts…</div></div>
     </div>
-    <div class="panel">
+    <div class="panel" style="margin-bottom:14px">
       <h2>Tracker-class activity (survives MAC rotation)</h2>
       <table id="activity"><tbody>
         <tr><td class="muted">loading…</td></tr>
+      </tbody></table>
+    </div>
+    <div class="panel">
+      <h2>Decoded ISM <span id="decstate" class="muted" style="padding:0"></span></h2>
+      <table id="decodes"><tbody>
+        <tr><td class="muted">…</td></tr>
       </tbody></table>
     </div>
   </section>
@@ -228,6 +234,35 @@ async function refresh() {
       at.appendChild(tr);
     }
   } catch (e) { /* transient; next tick retries */ }
+  refreshDecodes();
+}
+
+async function refreshDecodes() {
+  try {
+    const r = await (await fetch('/api/decodes?hours=24&limit=40')).json();
+    $('#decstate').textContent = r.decode_enabled ? 'enabled' : 'disabled (gated)';
+    const tb = $('#decodes tbody');
+    if (!r.decodes.length) {
+      tb.innerHTML = `<tr><td class="muted">${r.decode_enabled
+        ? 'no frames decoded yet' : 'decode is off — enable + authorize to use'}`
+        + `</td></tr>`;
+      return;
+    }
+    tb.innerHTML = '';
+    for (const d of r.decodes) {
+      const fields = Object.entries(d.frame)
+        .filter(([k]) => !['model','id','time','mod','freq','rssi','snr','noise']
+          .includes(k))
+        .slice(0, 4).map(([k, v]) => `${k}=${v}`).join(' ');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><b>${d.model}</b></td>
+        <td>id ${(d.identity||'').split(':').pop()}</td>
+        <td>${d.freq_mhz ? d.freq_mhz.toFixed(2)+'M' : ''}</td>
+        <td class="reason">${fields}</td>
+        <td class="muted">${fmtAgo(d.ts)} ago</td>`;
+      tb.appendChild(tr);
+    }
+  } catch (e) {}
 }
 
 let liveN = 0;

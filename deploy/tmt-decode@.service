@@ -1,0 +1,24 @@
+[Unit]
+# ISM decode on dongle %i (serial). SHIPS INERT: even when this unit is
+# enabled, decode.py refuses to run until config.local.json sets BOTH
+# decode.enabled=true AND decode.authorized=true. Coexists with OP25/sweep by
+# serial; do not point it at a serial another service is actively using.
+Description=Track_My_Tracker ISM decode (rtl_433) on dongle %i
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/Track_My_Tracker
+ExecStart=/home/pi/Track_My_Tracker/.venv/bin/python \
+    /home/pi/Track_My_Tracker/decode.py \
+    --device %i --session dec-%i --rotate-minutes 15
+Restart=on-failure
+RestartSec=15
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
