@@ -77,7 +77,7 @@ def main():
 
     window = f"last {args.hours:g}h" if args.hours else "all time"
     n_sessions = len({r["session"] for r in rows if r["session"]})
-    print(f"{BOLD}Track_My_Tracker — threat report{RST}  "
+    print(f"{BOLD}SpyTrap — threat report{RST}  "
           f"({window}, {len(rows)} sightings, {n_sessions} sessions)\n")
 
     print(f"{BOLD}Ranked suspects{RST}  "

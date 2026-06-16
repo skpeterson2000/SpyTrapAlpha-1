@@ -57,7 +57,7 @@ def main():
     engine = AlertEngine(store, cfg, on_alert=print_alert)
 
     push = cfg["push"]
-    print(f"Track_My_Tracker - alertd | tiers={cfg['alert_tiers']} | "
+    print(f"SpyTrap - alertd | tiers={cfg['alert_tiers']} | "
           f"window={cfg['window_hours']}h | cooldown={cfg['cooldown_minutes']}m | "
           f"push={'on:'+push['provider'] if push.get('enabled') else 'off'}")
     print("Watching sightings.db; alerts -> audible/push/log/DB. Ctrl-C to stop.\n")

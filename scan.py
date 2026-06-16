@@ -70,7 +70,7 @@ async def main():
     store = Store(args.db) if args.db else Store()
     sensor = BLESensor(store, session=session, on_event=print_event)
 
-    print(f"Track_My_Tracker - BLE scan  | session={args.session}  "
+    print(f"SpyTrap - BLE scan  | session={args.session}  "
           f"| duration={'inf' if args.duration == 0 else f'{args.duration:g}s'}")
     print("Logging every advertisement; !! flags known tracker signatures. "
           "Ctrl-C to stop.\n")

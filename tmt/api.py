@@ -34,7 +34,7 @@ def _store():
     return Store(check_same_thread=False)
 
 
-app = FastAPI(title="Track_My_Tracker API", version="1.0")
+app = FastAPI(title="SpyTrap API", version="1.0")
 
 
 @app.get("/api/health")
@@ -236,7 +236,7 @@ def index():
     if page.exists():
         return FileResponse(str(page))
     return JSONResponse({
-        "service": "Track_My_Tracker API",
+        "service": "SpyTrap API",
         "endpoints": ["/api/health", "/api/stats", "/api/suspects",
                       "/api/alerts", "/api/stream"],
     })
@@ -245,7 +245,7 @@ def index():
 @app.get("/api")
 def api_index():
     return {
-        "service": "Track_My_Tracker API",
+        "service": "SpyTrap API",
         "endpoints": ["/api/health", "/api/stats", "/api/suspects",
                       "/api/alerts", "/api/stream"],
         "note": "headless API; the web dashboard is served at /.",

@@ -94,7 +94,7 @@ def main():
                           hop_seconds=dcfg.get("hop_seconds", 30),
                           on_event=print_decode)
 
-    print(f"Track_My_Tracker - ISM decode | SN={serial} | "
+    print(f"SpyTrap - ISM decode | SN={serial} | "
           f"freqs={','.join(dcfg.get('frequencies', []))} | "
           f"hop={dcfg.get('hop_seconds')}s")
     print("Decoding UNENCRYPTED ISM device frames only. Ctrl-C to stop.\n")

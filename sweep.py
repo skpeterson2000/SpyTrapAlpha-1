@@ -111,7 +111,7 @@ def main():
                        gain=gain, threshold_db=args.threshold,
                        on_event=print_peak, on_skip=print_skip)
 
-    print(f"Track_My_Tracker - SDR sweep | session={args.session} | "
+    print(f"SpyTrap - SDR sweep | session={args.session} | "
           f"SN={serial} | bands={','.join(bands)}")
     print("Peaks above noise floor logged by frequency; busy dongle is skipped. "
           "Ctrl-C to stop.\n")
