@@ -16,12 +16,20 @@ import os
 import sys
 import time
 
+from tmt import config as configmod
 from tmt.db import Store
 from tmt.devices import list_devices, resolve_serial
-from tmt.sdr_sensor import SDRSensor, BANDS
+from tmt.sdr_sensor import (SDRSensor, BANDS, RECON_BANDS,
+                            DEFAULT_INTEGRATION,
+                            DEFAULT_RECON_INTEGRATION)
+from tmt import radio_control
+from tmt.thermal import Governor
 
 try:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    # line_buffering so THERMAL/RELEASE state changes reach journald as they
+    # happen — block buffering makes a parked sensor look silently dead.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace",
+                           line_buffering=True)
 except Exception:
     pass
 
@@ -36,8 +44,43 @@ def print_peak(ts, band, mhz, power, snr):
 
 
 def print_skip(band, reason):
+    if radio_control.is_released():
+        return          # we killed that helper on purpose; already announced
     t = time.strftime("%H:%M:%S")
     print(f"{WARN}[{t}]   ism-{band:<4} SKIPPED — dongle busy ({reason}){RST}")
+
+
+def print_recon(sweep, bands):
+    t = time.strftime("%H:%M:%S")
+    print(f"{STAR}[{t}]   RECON — sweep #{sweep}: full-span pass over "
+          f"{','.join(bands)} (catches emitters outside the narrow slices){RST}")
+
+
+def print_release(event, state):
+    t = time.strftime("%H:%M:%S")
+    if event == "released":
+        why = (state or {}).get("reason") or "requested from the dashboard"
+        print(f"{WARN}[{t}]   SDR RELEASED — {why}. Parking with the dongle "
+              f"free so OP25 can claim it; resume from the dashboard.{RST}")
+    else:
+        print(f"{STAR}[{t}]   SDR RESUMED — reclaiming the dongle.{RST}")
+
+
+def print_thermal(event, temp_c, flags):
+    t = time.strftime("%H:%M:%S")
+    tc = f"{temp_c:.1f}C" if temp_c is not None else "?C"
+    if event == "pause":
+        print(f"{WARN}[{t}]   THERMAL PAUSE — the Pi SoC is throttling ({tc}); "
+              f"backing off briefly. NOTE this is CPU heat, not the dongles — "
+              f"check what is loading the CPU before adding cooling.{RST}")
+    elif event == "resume":
+        print(f"{STAR}[{t}]   THERMAL OK — SoC {tc}; resuming sweeps.{RST}")
+    elif event == "timeout":
+        print(f"{WARN}[{t}]   THERMAL — SoC still {tc} after the pause cap; "
+              f"resuming sweeps anyway at a stretched interval. Sensing "
+              f"nothing is the worse failure.{RST}")
+    else:  # waiting
+        print(f"{DIM}[{t}]   …waiting for the SoC to settle, {tc}{RST}")
 
 
 def main():
@@ -56,7 +99,23 @@ def main():
     ap.add_argument("--rotate-minutes", type=float, default=0.0,
                     help="auto-segment session into N-minute buckets so the "
                          "scorer gets distinct windows (match scan.py).")
+    ap.add_argument("--integration", type=float, default=DEFAULT_INTEGRATION,
+                    help="rtl_power integration seconds per sweep. This is the "
+                         "sweep's main thermal dial: tuner on-air time scales "
+                         "linearly with it (span barely matters). Raise for "
+                         "sensitivity, lower to run cooler.")
+    ap.add_argument("--recon-integration", type=float,
+                    default=DEFAULT_RECON_INTEGRATION,
+                    help="integration seconds for the wide recon pass")
+    ap.add_argument("--recon-every", type=int, default=20,
+                    help="every Nth sweep, sweep the FULL band spans instead of "
+                         "the narrowed routine slices (0 = never). The narrow "
+                         "slices are what keep the tuner — and the enclosure — "
+                         "cool; this is the periodic wide look that stops them "
+                         "from becoming a blind spot.")
     ap.add_argument("--once", action="store_true", help="one sweep then exit")
+    ap.add_argument("--no-thermal", action="store_true",
+                    help="disable the SoC thermal governor for this run")
     ap.add_argument("--list-devices", action="store_true")
     ap.add_argument("--db", default=None)
     args = ap.parse_args()
@@ -93,6 +152,13 @@ def main():
     else:
         bands = BANDS
 
+    # Recon uses the full spans for whichever bands are actually selected, so
+    # --bands stays the single switch for what this dongle covers.
+    recon_every = max(0, args.recon_every)
+    recon_bands = {k: RECON_BANDS[k] for k in bands if k in RECON_BANDS}
+    if not recon_bands:
+        recon_every = 0
+
     base = args.session
     if args.rotate_minutes > 0:
         bucket = args.rotate_minutes * 60.0
@@ -109,22 +175,56 @@ def main():
     store = Store(args.db) if args.db else Store()
     sensor = SDRSensor(store, session=session, bands=bands, device=serial,
                        gain=gain, threshold_db=args.threshold,
-                       on_event=print_peak, on_skip=print_skip)
+                       recon_bands=recon_bands, recon_every=recon_every,
+                       integration=args.integration,
+                       recon_integration=args.recon_integration,
+                       on_event=print_peak, on_skip=print_skip,
+                       on_recon=print_recon)
 
+    # Thermal governor: pause sweeping when the SoC (a proxy for enclosure /
+    # dongle heat — the dongles have no own sensor) gets too hot, and stretch
+    # the interval when merely warm. Only governs the continuous loop; a one-off
+    # or --no-thermal run is never blocked.
+    gov = Governor.from_config(configmod.load(), on_state=print_thermal)
+    if args.no_thermal:
+        gov.enabled = False
+    continuous = args.interval > 0 and not args.once
+
+    span_mhz = sum((hi - lo) for segs in bands.values() for lo, hi, _ in segs) / 1e6
     print(f"SpyTrap - SDR sweep | session={args.session} | "
-          f"SN={serial} | bands={','.join(bands)}")
+          f"SN={serial} | bands={','.join(bands)} | {span_mhz:g} MHz per sweep "
+          f"| -i {args.integration:g}s")
+    if recon_every:
+        wide = sum((hi - lo) for segs in recon_bands.values()
+                   for lo, hi, _ in segs) / 1e6
+        print(f"Recon: full-span pass ({wide:g} MHz, -i "
+              f"{args.recon_integration:g}s) every {recon_every} sweeps.")
+    if gov.enabled:
+        print(f"Thermal backstop: soft {gov.soft_c:g}C, pause {gov.hard_c:g}C, "
+              f"resume {gov.resume_c:g}C, pause cap {gov.max_pause_seconds:g}s "
+              f"— Pi SoC die, NOT the dongles.")
     print("Peaks above noise floor logged by frequency; busy dongle is skipped. "
           "Ctrl-C to stop.\n")
     try:
         while True:
-            peaks, skips = sensor.sweep_once()
+            if continuous:
+                # Released takes precedence over hot: if the user has asked for
+                # the dongle, park without a radio rather than cooling with it.
+                radio_control.wait_while_released(on_state=print_release)
+                gov.wait_until_safe(time.sleep)   # blocks while HARD-hot
+            elif radio_control.is_released():
+                print_release("released", radio_control.read_state())
+                break
+            peaks, skips = sensor.sweep_once(
+                abort=radio_control.is_released)
             if not peaks and not skips:
                 t = time.strftime("%H:%M:%S")
                 print(f"{DIM}[{t}]   (sweep complete, no peaks above "
                       f"{args.threshold:g} dB){RST}")
-            if args.once or args.interval <= 0:
+            if not continuous:
                 break
-            time.sleep(args.interval)
+            level, _ = gov.assess()
+            time.sleep(gov.adjust_interval(args.interval, level))
     except KeyboardInterrupt:
         pass
     finally:

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Launch the Track_My_Tracker dashboard via the project venv.
+# Falls back to python3 (serve.py then re-execs into .venv itself).
+set -euo pipefail
+cd "$(dirname "$0")"
+PY="./.venv/bin/python"
+[ -x "$PY" ] || PY="python3"
+exec "$PY" serve.py "$@"

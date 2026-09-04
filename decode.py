@@ -21,9 +21,12 @@ from tmt import config as configmod
 from tmt.db import Store
 from tmt.decode_sensor import DecodeSensor
 from tmt.devices import resolve_serial
+from tmt import radio_control
+from tmt.thermal import Governor
 
 try:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace",
+                           line_buffering=True)
 except Exception:
     pass
 
@@ -57,7 +60,10 @@ def main():
     ap.add_argument("--device", default=None, help="dongle serial; default config/first")
     ap.add_argument("--rotate-minutes", type=float, default=0.0)
     ap.add_argument("--duration", type=float, default=0.0,
-                    help="seconds then stop (0 = run forever)")
+                    help="total seconds then stop, across all duty-cycle "
+                         "bursts (0 = run forever)")
+    ap.add_argument("--no-duty", action="store_true",
+                    help="ignore decode.duty and stream continuously (hot)")
     ap.add_argument("--enable", action="store_true",
                     help="bypass config decode.enabled for this run")
     ap.add_argument("--i-am-authorized", action="store_true",
@@ -94,12 +100,78 @@ def main():
                           hop_seconds=dcfg.get("hop_seconds", 30),
                           on_event=print_decode)
 
+    duty = dcfg.get("duty") or {}
+    burst = float(duty.get("burst_seconds", 60) or 0)
+    idle = float(duty.get("idle_seconds", 180) or 0)
+    duty_on = bool(duty.get("enabled", True)) and burst >= 1 and not args.no_duty
+
     print(f"SpyTrap - ISM decode | SN={serial} | "
           f"freqs={','.join(dcfg.get('frequencies', []))} | "
           f"hop={dcfg.get('hop_seconds')}s")
+    if duty_on:
+        pct = 100.0 * burst / (burst + idle) if burst + idle else 100.0
+        print(f"Duty cycle: {burst:g}s receiving / {idle:g}s radio off "
+              f"(~{pct:.0f}% tuner on-time); governor checked between bursts.")
+    else:
+        print(f"{WARN}Duty cycle OFF — streaming continuously "
+              f"(100% tuner on-time).{RST}")
     print("Decoding UNENCRYPTED ISM device frames only. Ctrl-C to stop.\n")
+
+    # rtl_433 owns the radio until it exits, so the governor cannot interrupt a
+    # burst mid-flight. Bounded bursts give it a decision point between each
+    # one: HARD-hot -> wait_until_safe() blocks with the radio already off;
+    # merely warm -> the idle gap is stretched, exactly as the sweep stretches
+    # its interval. Continuous mode keeps the old startup-only gate.
+    def _thermal(event, temp_c, flags):
+        tc = f"{temp_c:.1f}C" if temp_c is not None else "?C"
+        t = time.strftime("%H:%M:%S")
+        msg = {
+            "pause": f"SoC {tc} throttling; holding decode, radio off",
+            "waiting": f"waiting for the SoC to settle, {tc}",
+            "resume": f"SoC {tc}; resuming decode",
+            # Bounded pause expired: run anyway rather than sense nothing.
+            "timeout": (f"SoC still {tc} after the pause cap — resuming decode "
+                        f"anyway; this is CPU heat, not the dongles"),
+        }.get(event, f"SoC {tc}")
+        print(f"{WARN if event != 'resume' else DIM}[{t}] THERMAL — {msg}{RST}")
+
+    def _release(event, state):
+        t = time.strftime("%H:%M:%S")
+        if event == "released":
+            why = (state or {}).get("reason") or "requested from the dashboard"
+            print(f"{WARN}[{t}] SDR RELEASED — {why}. Decode parked with the "
+                  f"dongle free for OP25; resume from the dashboard.{RST}")
+        else:
+            print(f"{DIM}[{t}] SDR RESUMED — reclaiming the dongle.{RST}")
+
+    gov = Governor.from_config(cfg, on_state=_thermal)
+    deadline = (time.time() + args.duration) if args.duration > 0 else None
     try:
-        sensor.run(duration=args.duration)
+        if not duty_on:
+            radio_control.wait_while_released(on_state=_release)
+            gov.wait_until_safe(time.sleep)
+            sensor.run(duration=args.duration)
+        else:
+            while True:
+                # Released takes precedence over hot: if the user has asked for
+                # the dongle, park without a radio rather than cooling with it.
+                # A release mid-burst already killed rtl_433, so we land here
+                # immediately rather than after the remaining burst seconds.
+                radio_control.wait_while_released(on_state=_release)
+                gov.wait_until_safe(time.sleep)      # blocks while HARD-hot
+                run_for = burst
+                if deadline is not None:
+                    remaining = deadline - time.time()
+                    if remaining < 1:                # rtl_433 -T needs >=1s
+                        break
+                    run_for = min(burst, remaining)
+                sensor.run(duration=run_for)
+                if deadline is not None and time.time() >= deadline:
+                    break
+                if idle > 0:
+                    # Radio is off for this gap — the heat we are shedding.
+                    level, _ = gov.assess()
+                    time.sleep(gov.adjust_interval(idle, level))
     except KeyboardInterrupt:
         pass
     finally:

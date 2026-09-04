@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SpyTrap</title>
+<link rel="stylesheet" href="/static/leaflet/leaflet.css">
+<script src="/static/leaflet/leaflet.js"></script>
 <style>
   :root {
     --bg:#0d1117; --panel:#161b22; --line:#262d36; --fg:#e6edf3;
@@ -90,6 +92,83 @@
   .alert .chans { margin-left:auto; color:var(--dim); font-size:11px; }
   @keyframes flash { from{ background:#2d333b; } to{ background:transparent; } }
   .muted { color:var(--dim); padding:14px; }
+
+  /* ---- thermal chip --------------------------------------------------- */
+  .thermo { display:inline-flex; align-items:center; gap:6px; padding:2px 10px;
+    border-radius:20px; border:1px solid var(--line); font-size:12px;
+    color:var(--dim); cursor:default; }
+  .thermo .td { width:8px; height:8px; border-radius:50%; background:var(--ok); }
+  .thermo.off { opacity:.45; }
+  .thermo.warm { color:var(--med); border-color:var(--med); }
+  .thermo.warm .td { background:var(--med); }
+  .thermo.hot { color:#fff; background:var(--high); border-color:var(--high);
+    font-weight:bold; animation:pulseHot 1.4s infinite; }
+  .thermo.hot .td { background:#fff; }
+  @keyframes pulseHot {
+    0%,100% { box-shadow:0 0 0 0 rgba(248,81,73,.6); }
+    50%     { box-shadow:0 0 0 8px rgba(248,81,73,0); }
+  }
+  /* full-width status call-to-action shown only when something needs a human */
+  .statusmsg { flex-basis:100%; display:none; padding:6px 10px; font-size:12px;
+    border-radius:8px; margin-top:6px; }
+  .statusmsg.show { display:block; }
+  .statusmsg.warm { color:var(--med); background:rgba(227,179,65,.1);
+    border:1px solid var(--med); }
+  .statusmsg.hot { color:#ffd7d4; background:rgba(248,81,73,.12);
+    border:1px solid var(--high); }
+
+  /* ---- map ------------------------------------------------------------ */
+  .map-panel { grid-column:1 / -1; }       /* full width across the grid */
+  .h2row { display:flex; align-items:center; gap:10px; }
+  .h2row .right { margin-left:auto; display:flex; align-items:center; gap:8px;
+                  text-transform:none; letter-spacing:0; }
+  .h2row select { padding:2px 5px; font-size:12px; }
+  .btn { background:var(--bg); color:var(--fg); border:1px solid var(--line);
+         border-radius:6px; padding:3px 9px; font:inherit; font-size:12px;
+         cursor:pointer; }
+  .btn:hover { background:#1c2330; }
+  .btn[disabled] { opacity:.45; cursor:default; }
+  /* Evidence basis: what a verdict actually rests on. Position-corroborated is
+     the only basis that can mean "it travelled with me". */
+  .ev { font-size:10px; padding:1px 6px; border-radius:10px; white-space:nowrap;
+        border:1px solid var(--line); color:var(--dim); }
+  .ev-position_corroborated { color:var(--high); border-color:var(--high); }
+  .ev-local_fixture { opacity:.7; }
+  .ev-recurrence_only { color:var(--med); border-color:var(--med); }
+  /* Release toggle: red = "this will stop collecting", green = "give it back". */
+  .btn.danger { border-color:var(--high); color:var(--high); }
+  .btn.danger:hover:not([disabled]) { background:rgba(248,81,73,.12); }
+  .btn.good { border-color:var(--ok); color:var(--ok); }
+  .btn.good:hover:not([disabled]) { background:rgba(63,185,80,.12); }
+  #map { height:clamp(280px,42vh,520px); width:100%; background:#0a0d12; }
+  /* dark-tune the OSM tiles so they don't blast a light map into a dark UI */
+  .leaflet-tile { filter:brightness(.65) invert(.92) hue-rotate(180deg)
+                  saturate(.4) contrast(.95); }
+  .leaflet-container { background:#0a0d12; font:inherit; }
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip { background:var(--panel);
+    color:var(--fg); border:1px solid var(--line); }
+  .leaflet-bar a { background:var(--panel); color:var(--fg);
+    border-bottom:1px solid var(--line); }
+  .leaflet-bar a:hover { background:#1c2330; }
+  .leaflet-control-attribution { background:rgba(13,17,23,.7)!important;
+    color:var(--dim)!important; }
+  .leaflet-control-attribution a { color:var(--low)!important; }
+  /* pulsing "you are here" marker (CSS-only, no image asset needed) */
+  .you-dot { width:16px; height:16px; border-radius:50%;
+    background:var(--low); box-shadow:0 0 0 rgba(57,197,207,.7);
+    animation:pulse 2s infinite; }
+  @keyframes pulse {
+    0%{box-shadow:0 0 0 0 rgba(57,197,207,.6);}
+    70%{box-shadow:0 0 0 14px rgba(57,197,207,0);}
+    100%{box-shadow:0 0 0 0 rgba(57,197,207,0);}
+  }
+  .dlg .map { background:var(--low); color:#04181b; border-color:var(--low);
+              font-weight:bold; }
+  @media (max-width:880px){
+    main { padding:10px; gap:10px; }
+    header { gap:10px; padding:10px 12px; }
+    #map { height:clamp(240px,38vh,420px); }
+  }
 </style>
 </head>
 <body>
@@ -114,6 +193,15 @@
         <option value="168">7d</option>
       </select>
     </label>
+    <label>refresh
+      <select id="refresh">
+        <option value="0">paused</option>
+        <option value="2000">2s</option>
+        <option value="5000" selected>5s</option>
+        <option value="15000">15s</option>
+        <option value="30000">30s</option>
+      </select>
+    </label>
   </div>
   <div class="stats">
     <span class="stat"><b id="s-sight">–</b> <span>sightings</span></span>
@@ -121,18 +209,42 @@
     <span class="stat"><b id="s-alerts">–</b> <span>alerts</span></span>
     <span class="stat"><span>BLE</span> <b id="s-ble">–</b></span>
     <span class="stat"><span>SDR</span> <b id="s-sdr">–</b></span>
+    <span class="thermo off" id="thermo" title="SoC temperature — proxy for dongle/enclosure heat">
+      <span class="td"></span><span>SDR temp</span> <b id="thermo-t">–</b>
+    </span>
+    <span class="thermo off" id="dongles" title="RTL-SDR dongles on the USB bus">
+      <span class="td"></span><span>dongles</span> <b id="dongles-n">–</b>
+    </span>
+    <button class="btn danger" id="radio-btn"
+            title="free the SDR dongles so OP25 can claim one">📻 release SDRs</button>
   </div>
+  <div id="thermo-msg" class="statusmsg"></div>
+  <div id="dongle-msg" class="statusmsg"></div>
+  <div id="radio-msg" class="statusmsg"></div>
+  <div id="coverage-msg" class="statusmsg"></div>
 </header>
 
 <main>
+  <section class="panel map-panel">
+    <h2 class="h2row">
+      <span>Map — your position &amp; tracked trails</span>
+      <span class="right">
+        <span id="mapstate" class="muted" style="padding:0">locating…</span>
+        <button class="btn" id="map-recenter" title="re-center on you">⊕ me</button>
+        <button class="btn" id="map-clear" title="clear plotted trails">clear trails</button>
+      </span>
+    </h2>
+    <div id="map"></div>
+  </section>
+
   <section class="panel">
     <h2>Suspects — ranked by recurrence / threat</h2>
     <div style="overflow:auto">
       <table id="suspects">
         <thead><tr>
           <th>tier</th><th>score</th><th>radio</th><th>identity</th>
-          <th>label</th><th>sess</th><th>span</th><th>rssi</th><th>last</th>
-          <th>why</th>
+          <th>label</th><th>basis</th><th>places</th><th>sess</th><th>span</th>
+          <th>rssi</th><th>last</th><th>why</th>
         </tr></thead>
         <tbody><tr><td colspan="10" class="muted">loading…</td></tr></tbody>
       </table>
@@ -156,8 +268,33 @@
         <tr><td class="muted">loading…</td></tr>
       </tbody></table>
     </div>
+    <div class="panel" style="margin-bottom:14px">
+      <h2 class="h2row"><span>Aircraft (ADS-B)</span>
+        <span class="right">
+          <span id="acstate" class="muted" style="padding:0"></span>
+          <select id="ac-min">
+            <option value="15">15m</option>
+            <option value="30" selected>30m</option>
+            <option value="60">1h</option>
+            <option value="360">6h</option>
+          </select>
+        </span>
+      </h2>
+      <table id="aircraft"><tbody>
+        <tr><td class="muted">…</td></tr>
+      </tbody></table>
+    </div>
     <div class="panel">
-      <h2>Decoded ISM <span id="decstate" class="muted" style="padding:0"></span></h2>
+      <h2 class="h2row"><span>Decoded ISM</span>
+        <span class="right">
+          <span id="decstate" class="muted" style="padding:0"></span>
+          <select id="dec-hours">
+            <option value="6">6h</option>
+            <option value="24" selected>24h</option>
+            <option value="168">7d</option>
+          </select>
+        </span>
+      </h2>
       <table id="decodes"><tbody>
         <tr><td class="muted">…</td></tr>
       </tbody></table>
@@ -182,6 +319,9 @@
     <label>Notes</label>
     <textarea id="dlg-notes" rows="2"></textarea>
     <div class="row2">
+      <button class="map" id="dlg-track" onclick="trackOnMap()">📍 trail on map</button>
+    </div>
+    <div class="row2">
       <button onclick="closeDlg()">cancel</button>
       <button class="del" id="dlg-del" onclick="deleteLabel()">remove</button>
       <button class="save" onclick="saveLabel()">save</button>
@@ -191,7 +331,7 @@
 
 <script>
 const CAT = {mine:'mine',safe:'safe',watch:'watch',threat:'threat',ignore:'ignore'};
-let dlgTarget = null, dlgCat = null;
+let dlgTarget = null, dlgCat = null, dlgName = null;
 const $ = s => document.querySelector(s);
 const fmtAgo = ts => {
   const d = Date.now()/1000 - ts;
@@ -225,7 +365,7 @@ async function refresh() {
       `/api/suspects?hours=${hours}&min_tier=${tier}&top=60`)).json();
     const tb = $('#suspects tbody');
     tb.innerHTML = r.suspects.length ? '' :
-      '<tr><td colspan="10" class="muted">no suspects at this tier/window</td></tr>';
+      '<tr><td colspan="12" class="muted">no suspects at this tier/window</td></tr>';
     for (const s of r.suspects) {
       const tr = document.createElement('tr');
       const cls = [];
@@ -238,9 +378,20 @@ async function refresh() {
       const ident = s.broadcast_name
         ? `<b>${s.broadcast_name}</b><br><span class="muted" style="padding:0">${s.address ?? '?'}</span>`
         : (s.address ?? '?');
+      const EV = {position_corroborated: 'position \u2713',
+                  local_fixture: 'stationary',
+                  recurrence_only: 'recurrence only'};
+      const EVT = {position_corroborated:
+                     'Seen at multiple places while you were moving \u2014 this is the only basis that means "it travelled with you".',
+                   local_fixture:
+                     'You moved; this never left one spot. Evidence AGAINST following.',
+                   recurrence_only:
+                     'No usable position (for it or for you), so following cannot be confirmed. Capped below HIGH.'};
+      const ev = `<span class="ev ev-${s.evidence}" title="${EVT[s.evidence]||''}">${EV[s.evidence]||s.evidence}</span>`;
       tr.innerHTML = `<td>${badge(s.tier)}</td><td>${s.score}</td>
         <td>${s.radio}</td><td>${ident}</td>
         <td>${lab}</td>
+        <td>${ev}</td><td>${s.n_places ?? 0}</td>
         <td>${s.n_sessions}</td><td>${s.span_h.toFixed(1)}h</td>
         <td>${rssiMeter(s.rssi_max)}</td><td>${fmtAgo(s.last)} ago</td>
         <td class="reason">${(s.reasons||[]).join('; ')}</td>`;
@@ -248,6 +399,25 @@ async function refresh() {
       tb.appendChild(tr);
     }
     const at = $('#activity tbody');
+    const cov = r.coverage, cm = $('#coverage-msg');
+    if (cov) {
+      if (!cov.observer_moved) {
+        // The honest headline: a rig that never moved cannot show "following".
+        const sp = cov.observer_spread_m ?? 0;
+        cm.textContent = `\u26a0 You did not move in this window `
+          + `(furthest apart: ${sp} m, under the ${cov.min_move_m ?? 250} m `
+          + `threshold; ${cov.coverage_pct}% of sightings positioned) \u2014 `
+          + `recurrence here cannot distinguish "following me" from `
+          + `"lives nearby". Verdicts are capped below HIGH.`;
+        cm.className = 'statusmsg warm show';
+      } else {
+        cm.textContent = `\u2713 Moved across ${cov.observer_places} locations `
+          + `(${((cov.observer_spread_m??0)/1000).toFixed(1)} km apart) \u2014 `
+          + `${cov.coverage_pct}% of sightings positioned.`;
+        cm.className = 'statusmsg show';
+      }
+    } else { cm.className = 'statusmsg'; }
+
     at.innerHTML = r.tracker_activity.length ? '' :
       '<tr><td class="muted">none</td></tr>';
     for (const a of r.tracker_activity) {
@@ -259,7 +429,161 @@ async function refresh() {
     }
   } catch (e) { /* transient; next tick retries */ }
   refreshNovelty();
+  refreshAircraft();
   refreshDecodes();
+  refreshThermal();
+  refreshDongles();
+  refreshRadio();
+}
+
+async function refreshThermal() {
+  const chip = $('#thermo'), msg = $('#thermo-msg');
+  try {
+    const r = await (await fetch('/api/thermal')).json();
+    const t = r.temp_c != null ? r.temp_c.toFixed(0) + '°C' : '–';
+    $('#thermo-t').textContent = t;
+    // level: OK -> green, SOFT -> amber, HARD -> pulsing red
+    const cls = r.level === 'HARD' ? 'hot' : r.level === 'SOFT' ? 'warm' : '';
+    chip.className = 'thermo' + (r.enabled ? '' : ' off') + (cls ? ' ' + cls : '');
+    chip.title = r.enabled
+      ? `SoC ${t} · governor pauses SDR at ${r.hard_c}°C, resumes at ${r.resume_c}°C`
+      : 'thermal governor disabled';
+    // Surface the human call-to-action only when it's actually struggling.
+    if (r.enabled && cls) {
+      let m = r.message;
+      if (r.soc_throttling) m += ' · SoC is thermal-throttling';
+      if (r.undervolt) m += ' · ⚠ under-voltage detected (check the PSU/cable)';
+      msg.textContent = (r.level === 'HARD' ? '🔥 ' : '🌡 ') + m;
+      msg.className = 'statusmsg ' + cls + ' show';
+    } else {
+      msg.className = 'statusmsg';
+    }
+  } catch (e) {
+    chip.className = 'thermo off';
+    $('#thermo-t').textContent = '–';
+    msg.className = 'statusmsg';
+  }
+}
+
+async function refreshDongles() {
+  const chip = $('#dongles'), msg = $('#dongle-msg');
+  try {
+    const r = await (await fetch('/api/dongles')).json();
+    $('#dongles-n').textContent = r.expected_count
+      ? `${r.count}/${r.expected_count}` : `${r.count}`;
+    const names = r.present.map(d => d.serial || '?').join(', ') || 'none';
+    chip.className = 'thermo' + (r.ok ? '' : ' hot');
+    chip.title = `RTL-SDR dongles on the bus: ${names}`;
+    if (!r.ok) {
+      const what = r.missing && r.missing.length
+        ? `missing ${r.missing.join(', ')}` : 'no dongles on the bus';
+      msg.textContent = `🔌 SDR ${what} — check USB power (battery-box idle `
+        + `auto-shutoff?) and cabling`;
+      msg.className = 'statusmsg hot show';
+    } else {
+      msg.className = 'statusmsg';
+    }
+  } catch (e) {
+    chip.className = 'thermo off';
+    $('#dongles-n').textContent = '–';
+    msg.className = 'statusmsg';
+  }
+}
+
+// ---- SDR release (share the dongles with OP25) -----------------------------
+// Cooperative, not `systemctl stop`: the sensors park without opening a dongle
+// (see tmt/radio_control.py), so this needs no elevated privilege and the
+// services stay up. The API itself is never touched, so this page always
+// survives to hand the radios back.
+let radioState = null;
+
+async function refreshRadio() {
+  const btn = $('#radio-btn'), msg = $('#radio-msg');
+  try {
+    const r = await (await fetch('/api/radio')).json();
+    radioState = r;
+    const held = (r.radio_processes || []).length;
+    if (r.released) {
+      // Still-running helpers mean the dongle is not free YET — say so rather
+      // than claiming success the user would discover was false in OP25.
+      btn.textContent = held ? '⏳ freeing…' : '▶ resume SpyTrap';
+      btn.className = 'btn good';
+      btn.title = 'hand the SDR dongles back to SpyTrap';
+      const t = r.since ? new Date(r.since * 1000).toLocaleTimeString() : '';
+      msg.textContent = held
+        ? `📻 releasing — waiting for ${held} radio process(es) to exit…`
+        : `📻 SDR released${t ? ' at ' + t : ''} — dongles are free for OP25. `
+          + `BLE, GPS and alerting keep running; a reboot also resumes.`;
+      msg.className = 'statusmsg warm show';
+    } else {
+      btn.textContent = '📻 release SDRs';
+      btn.className = 'btn danger';
+      btn.title = 'free the SDR dongles so OP25 can claim one';
+      msg.className = 'statusmsg';
+    }
+    btn.disabled = false;
+  } catch (e) {
+    btn.disabled = true;
+    $('#radio-msg').className = 'statusmsg';
+  }
+}
+
+async function toggleRadio() {
+  const btn = $('#radio-btn');
+  const releasing = !(radioState && radioState.released);
+  if (releasing && !confirm(
+        'Free the SDR dongles for OP25?\n\n'
+        + 'The ISM sweep and decode will park with no radio open until you '
+        + 'resume. BLE, GPS and alerting keep running.')) return;
+  btn.disabled = true;
+  try {
+    await fetch(releasing ? '/api/radio/release' : '/api/radio/resume', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: releasing ? JSON.stringify({reason: 'OP25 needs a dongle'}) : null,
+    });
+  } catch (e) { /* refreshRadio below re-reads the real state either way */ }
+  await refreshRadio();
+  // Helpers exit asynchronously; re-check so "freeing…" resolves on its own.
+  setTimeout(refreshRadio, 1200);
+  setTimeout(refreshRadio, 3500);
+}
+
+async function refreshAircraft() {
+  try {
+    const mins = $('#ac-min').value;
+    const r = await (await fetch(`/api/aircraft?minutes=${mins}`)).json();
+    $('#acstate').textContent = r.count
+      ? `${r.count} tracked · ${r.loitering} loitering` : 'none in view';
+    const tb = $('#aircraft tbody');
+    if (!r.aircraft.length) {
+      tb.innerHTML = '<tr><td class="muted">no aircraft — needs dump1090 + a '
+        + '1090 MHz antenna with sky view</td></tr>';
+      return;
+    }
+    tb.innerHTML = '';
+    for (const a of r.aircraft) {
+      const tr = document.createElement('tr');
+      if (a.loiter) tr.className = 'tracker';
+      const detail = a.loiter
+        ? `<span class="badge HIGH">LOITER</span> r=${a.radius_km}km`
+          + (a.dist_to_us_km != null
+              ? (a.focus === 'you'
+                  ? ' · orbiting <b>YOU</b>'
+                  : ` · orbiting something ${a.dist_to_us_km}km away`)
+              : '')
+        : `${a.gs != null ? Math.round(a.gs) + 'kt ' : ''}`
+          + `${a.alt != null ? Math.round(a.alt) + 'ft' : ''}`;
+      tr.innerHTML = `<td><b>${a.flight || a.hex}</b>`
+        + `<br><span class="muted" style="padding:0">${a.hex}</span></td>
+        <td>${rssiMeter(a.rssi, -30, -3)}</td>
+        <td class="reason">${detail}</td>
+        <td class="muted">${fmtAgo(a.last)} ago</td>`;
+      tr.onclick = () => openDlg({radio: 'adsb', address: a.hex,
+        broadcast_name: a.flight, tracker: null});
+      tb.appendChild(tr);
+    }
+  } catch (e) {}
 }
 
 async function refreshNovelty() {
@@ -296,7 +620,8 @@ async function refreshNovelty() {
 
 async function refreshDecodes() {
   try {
-    const r = await (await fetch('/api/decodes?hours=24&limit=40')).json();
+    const dh = $('#dec-hours').value;
+    const r = await (await fetch(`/api/decodes?hours=${dh}&limit=40`)).json();
     $('#decstate').textContent = r.decode_enabled ? 'enabled' : 'disabled (gated)';
     const tb = $('#decodes tbody');
     if (!r.decodes.length) {
@@ -371,6 +696,7 @@ function setCat(c) {
 }
 function openDlg(s) {
   dlgTarget = {radio: s.radio, identity: s.address};
+  dlgName = s.label || s.broadcast_name || s.tracker || s.address || '?';
   $('#dlg-who').textContent = `${s.radio} · ${s.address}`
     + (s.broadcast_name ? ` · “${s.broadcast_name}”` : '')
     + (s.tracker ? ` · ${s.tracker}` : '');
@@ -400,12 +726,135 @@ async function deleteLabel() {
   closeDlg(); refresh();
 }
 
+// ---- map -------------------------------------------------------------
+let map = null, youMarker = null, homeLL = null, trails = [];
+const trailColors = ['#f85149','#e3b341','#39c5cf','#bc8cff','#3fb950','#f0883e'];
+
+function initMap() {
+  if (typeof L === 'undefined') {            // vendored leaflet failed to load
+    $('#map').innerHTML = '<div class="muted">map library unavailable</div>';
+    $('#mapstate').textContent = 'offline';
+    return;
+  }
+  map = L.map('map', {zoomControl: true, attributionControl: true})
+        .setView([20, 0], 2);
+  // OSM tiles need a network; if offline the markers/trails still draw on the
+  // dark background (Leaflet tolerates missing tiles).
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '© OpenStreetMap',
+  }).addTo(map);
+  $('#map-recenter').onclick = () => homeLL && map.setView(homeLL, 16);
+  $('#map-clear').onclick = clearTrails;
+}
+
+async function refreshGps() {
+  if (!map) return;
+  try {
+    const g = await (await fetch('/api/gps')).json();
+    if (!g.have_fix || !g.fix) {
+      // Say WHY there is no fix. gpsd reporting 0,0 with mode=3 used to be
+      // plotted as a real position (in the Gulf of Guinea) and silently
+      // stamped onto every sighting; "no GPS fix" alone hid that entirely.
+      $('#mapstate').textContent = !g.enabled ? 'GPS off'
+        : (g.reason ? 'no GPS fix — ' + g.reason : 'no GPS fix');
+      $('#mapstate').title = g.reason || '';
+      return;
+    }
+    const ll = [g.fix.lat, g.fix.lon];
+    const first = homeLL === null;
+    homeLL = ll;
+    if (!youMarker) {
+      youMarker = L.marker(ll, {
+        icon: L.divIcon({className: '', html: '<div class="you-dot"></div>',
+          iconSize: [16, 16], iconAnchor: [8, 8]}),
+        zIndexOffset: 1000,
+      }).addTo(map).bindPopup('You are here');
+    } else {
+      youMarker.setLatLng(ll);
+    }
+    const spd = g.fix.speed != null ? ` · ${(g.fix.speed*1.94384).toFixed(1)}kt` : '';
+    $('#mapstate').textContent =
+      `${g.fix.lat.toFixed(5)}, ${g.fix.lon.toFixed(5)}${spd}`;
+    if (first) map.setView(ll, 16);
+  } catch (e) { /* transient */ }
+}
+
+function clearTrails() {
+  trails.forEach(t => map.removeLayer(t));
+  trails = [];
+}
+
+// rssi -> green(weak/far) .. red(strong/close), normalised within this trail
+function trailColor(v, lo, hi) {
+  if (v == null || hi === lo) return '#39c5cf';
+  const pct = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+  return `hsl(${(120 * (1 - pct)).toFixed(0)},75%,55%)`;
+}
+
+async function trackOnMap() {
+  if (!map || !dlgTarget) return;
+  const hours = $('#hours').value;
+  const q = new URLSearchParams({identity: dlgTarget.identity, hours});
+  if (dlgTarget.radio && dlgTarget.radio !== 'adsb') q.set('radio', dlgTarget.radio);
+  const who = dlgName;
+  closeDlg();
+  let r;
+  try { r = await (await fetch('/api/track?' + q)).json(); }
+  catch (e) { $('#mapstate').textContent = 'track fetch failed'; return; }
+  const pts = (r.points || []).filter(p => p.lat != null && p.lon != null);
+  document.querySelector('.map-panel').scrollIntoView({behavior: 'smooth', block: 'start'});
+  if (!pts.length) { $('#mapstate').textContent = `no located points for ${who}`; return; }
+  const color = trailColors[trails.length % trailColors.length];
+  const rssis = pts.map(p => p.rssi).filter(v => v != null);
+  const lo = Math.min(...rssis), hi = Math.max(...rssis);
+  const grp = L.layerGroup();
+  const lls = pts.map(p => [p.lat, p.lon]);
+  L.polyline(lls, {color, weight: 2, opacity: .65}).addTo(grp);
+  pts.forEach((p, i) => {
+    L.circleMarker([p.lat, p.lon], {
+      radius: i === pts.length - 1 ? 6 : 4,
+      color: trailColor(p.rssi, lo, hi), weight: 1,
+      fillColor: trailColor(p.rssi, lo, hi), fillOpacity: .85,
+    }).bindPopup(`<b>${who}</b><br>${new Date(p.ts*1000).toLocaleString()}`
+      + `<br>rssi ${p.rssi ?? '–'}`).addTo(grp);
+  });
+  grp.addTo(map);
+  trails.push(grp);
+  map.fitBounds(L.latLngBounds(lls).pad(0.25));
+  $('#mapstate').textContent = `${who}: ${pts.length} located points (${color})`;
+}
+
+// ---- refresh scheduling ---------------------------------------------
+let timer = null;
+const dialogOpen = () => $('#ov').classList.contains('show');
+function tick() {
+  if (document.hidden) return;
+  refreshGps();
+  if (!dialogOpen()) refresh();           // don't reshuffle rows under the user
+}
+function applyRefresh() {
+  if (timer) clearInterval(timer);
+  const ms = +$('#refresh').value;
+  timer = ms ? setInterval(tick, ms) : null;
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { tick(); }       // catch up immediately when refocused
+});
+
+$('#radio-btn').onclick = toggleRadio;
 $('#tier').onchange = refresh;
 $('#hours').onchange = refresh;
+$('#refresh').onchange = applyRefresh;
+$('#ac-min').onchange = refreshAircraft;
+$('#dec-hours').onchange = refreshDecodes;
+
+initMap();
+refreshRadio();
 seedAlerts();
 connectStream();
+refreshGps();
 refresh();
-setInterval(refresh, 5000);
+applyRefresh();
 </script>
 </body>
 </html>

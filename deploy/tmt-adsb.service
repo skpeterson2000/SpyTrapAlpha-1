@@ -1,0 +1,18 @@
+[Unit]
+Description=SpyTrap ADS-B aircraft sensor (reads dump1090 JSON output)
+After=network.target dump1090-mutability.service
+Wants=dump1090-mutability.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/Track_My_Tracker
+ExecStart=/home/pi/Track_My_Tracker/.venv/bin/python /home/pi/Track_My_Tracker/adsbd.py
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
